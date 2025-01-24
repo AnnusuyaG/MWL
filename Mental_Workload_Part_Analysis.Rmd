@@ -1,0 +1,254 @@
+---
+title: "RP2"
+author: "GROUP 3"
+date: "2025-01-22"
+output: html_document
+---
+
+```
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width = 8)
+knitr::opts_chunk$set(fig.height = 8)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(printr)
+library(readr)
+library(car)
+library(profvis)
+
+require(readxl)
+require(jpeg)
+require(ggimg)
+
+```
+### Input and preparation
+
+###### Reading participant data from the RP2 folder.
+
+```{r}
+
+# Get list of all files in RP2 directory
+rp2_files <- list.files("C:/Users/mycom/Downloads/RP2", pattern = "*.csv", full.names = TRUE)
+
+```
+
+```{r}
+
+# Define function to load and clean files from RP2
+read_rp2_files <- function(file_path) {
+  read_csv(file_path, 
+           col_types = cols(
+             recording_start_time = col_double(),
+             current_phase = col_character(),
+             value = col_double()
+           )) %>%
+    filter(!is.na(value)) # Remove rows without valid participant data
+}
+```
+
+```{r load-data}
+# Load and combine participant data
+participant_data <- bind_rows(lapply(rp2_files, read_rp2_files), .id = "file_id")
+
+# Inspect combined data
+head(participant_data)
+
+```
+
+### Comparing Participant Data
+
+###### Aggregating and comparing data across participants.
+
+```{r}
+# Summarize participant data by file and phase
+summary_data <- participant_data %>%
+  group_by(file_id, current_phase) %>%
+  summarize(
+    mean_value = mean(value, na.rm = TRUE),
+    sd_value = sd(value, na.rm = TRUE),
+    min_value = min(value, na.rm = TRUE),
+    max_value = max(value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Inspect summary statistics
+print(summary_data)
+```
+
+### Visualizing Participant Comparisons
+
+###### Plotting participant data for comparison.
+
+```{r, fig.height = 8, fig.width = 10}
+# Boxplot of values by phase and file
+participant_data %>%
+  ggplot(aes(x = current_phase, y = value, fill = file_id)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(
+    title = "Participant Data Comparison",
+    x = "Phase",
+    y = "Value",
+    fill = "Participant"
+  )
+```
+
+
+```{r, fig.height = 8, fig.width = 10}
+# Bar graph of mean values by phase for each file
+summary_data %>%
+  ggplot(aes(x = current_phase, y = mean_value, fill = file_id)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(
+    title = "Mean Value by Phase",
+    x = "Phase",
+    y = "Mean Value",
+    fill = "Participant"
+  )
+```
+###### Exploring the variability between participants in each phase
+```{r}
+participant_variability <- participant_data %>%
+  group_by(file_id, current_phase) %>%
+  summarize(
+    median_value = median(value, na.rm = TRUE),
+    interquartile_range = IQR(value, na.rm = TRUE),
+    #missing_count = sum(is.na(value)),
+    .groups = "drop"
+  )
+print(participant_variability)
+```
+```{r}
+participant_variability %>%
+  pivot_longer(cols = c(median_value, interquartile_range), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  ggplot(aes(x = current_phase, y = value, fill = file_id)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ metric, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Participant Variability Metrics by Phase",
+    x = "Phase",
+    y = "Metric Value",
+    fill = "Participant"
+  )
+```
+
+```{r, fig.height = 8, fig.width = 10}
+participant_data %>%
+  ggplot(aes(x = current_phase, y = value, fill = current_phase)) +
+  geom_boxplot() +
+  facet_wrap(~ file_id, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Phase-wise Boxplot for Each Participant",
+    x = "Phase",
+    y = "Value",
+    fill = "Phase"
+  )
+```
+
+#### Distributions of values for participants in each phase.
+```{r, fig.height = 8, fig.width = 10}
+participant_data %>%
+  ggplot(aes(x = value, fill = current_phase)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~ file_id) +
+  theme_minimal() +
+  labs(
+    title = "Value Distribution by Participant and Phase",
+    x = "Value",
+    fill = "Phase"
+  )
+```
+
+
+###### Performing paired t-tests or repeated-measures ANOVA to identify significant differences between phases.
+
+```{r}
+# Paired t-test with Debugging
+intermediate_table <- participant_data %>%
+  filter(current_phase %in% c("Phase 1- Baseline", "Phase 2")) %>%
+  group_by(file_id, current_phase) %>%
+  summarize(mean_value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  spread(key = current_phase, value = mean_value)
+
+# Perform paired t-test
+paired_test <- t.test(intermediate_table$`Phase 1- Baseline`, intermediate_table$`Phase 2`, paired = TRUE)
+print(paired_test)
+```
+
+```{r}
+install.packages("plotly")
+
+library(plotly)
+```
+
+```{r}
+ggplotly(
+  participant_data %>%
+    ggplot(aes(x = current_phase, y = value, color = file_id)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(
+      title = "Interactive Participant Comparison",
+      x = "Phase",
+      y = "Value",
+      color = "Participant"
+    )
+)
+```
+
+```{r}
+correlation_data <- participant_data %>%
+  group_by(file_id) %>%
+  summarize(mean_baseline = mean(value[current_phase == "Phase 1- Baseline"], na.rm = TRUE),
+            mean_phase2 = mean(value[current_phase == "Phase 2"], na.rm = TRUE)) %>%
+  na.omit()
+
+cor_test <- cor.test(correlation_data$mean_baseline, correlation_data$mean_phase2)
+print(cor_test)
+```
+
+
+```{r}
+# Paired t-test with Debugging
+intermediate_table <- participant_data %>%
+  filter(current_phase %in% c("Phase 2", "Phase 3")) %>%
+  group_by(file_id, current_phase) %>%
+  summarize(mean_value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  spread(key = current_phase, value = mean_value)
+
+# Perform paired t-test
+paired_test <- t.test(intermediate_table$`Phase 2`, intermediate_table$`Phase 3`, paired = TRUE)
+print(paired_test)
+```
+
+```{r}
+# One-way repeated-measures ANOVA (comparing all phases)
+
+anova_data <- participant_data %>%
+  group_by(file_id) %>%
+  mutate(id = as.factor(row_number())) %>%
+  ungroup()
+
+#anova_model <- aov(value ~ current_phase + Error(id/current_phase), data = anova_data)
+
+#summary(anova_model)
+```
+
+### Saving Cleaned Data
+###### Exporting the cleaned and combined dataset for further analysis.
+
+```{r}
+
+save(participant_data,summary_data, intermediate_table, anova_data, file = "RP2.Rda")
+
+```
