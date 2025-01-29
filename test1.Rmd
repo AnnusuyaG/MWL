@@ -33,7 +33,7 @@ require(ggimg)
 ```{r}
 
 # Get list of all files in RP2 directory
-rp2_files <- list.files("C:/Users/mycom/Downloads/RP2", pattern = "*.csv", full.names = TRUE)
+rp2_files <- list.files(".", pattern = "*.csv", full.names = TRUE) #enter working directory
 
 ```
 
