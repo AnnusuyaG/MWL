@@ -23,7 +23,7 @@ require(readxl)
 ### Input and preparation
 ###### Get list of all files in RP2 directory
 ```{r}
-rp2_files <- list.files("C:/Users/mycom/Downloads/RP2/SENSOR_DATA", pattern = "*.csv", full.names = TRUE)
+rp2_files <- list.files(".", pattern = "*.csv", full.names = TRUE) #enter working directory/getwd
 ```
 
 ###### Create a reusable function to load and preprocess individual CSV files.
@@ -143,7 +143,7 @@ participant_data %>%
 
 ##### Load NASA TLX data
 ```{r}
-nasa_tlx_scores <- read_csv("C:/Users/mycom/Downloads/RP2/NASATLX/NASA_TLX_Scores.csv") %>%
+nasa_tlx_scores <- read_csv(".") %>% #ENTER W OR FILENAME IF IT WORKS
   mutate(
     current_phase = factor(current_phase, levels = c("Phase 2", "Phase 3")),
     file_id = as.character(file_id)  # Align with participant_data
