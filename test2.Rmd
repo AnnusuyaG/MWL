@@ -1,0 +1,237 @@
+---
+title: "RP2"
+author: "GROUP 3"
+date: "2025-01-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_chunk$set(fig.width = 8)
+knitr::opts_chunk$set(fig.height = 8)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(printr)
+library(readr)
+library(fmsb)
+
+require(readxl)
+```
+
+### Input and preparation
+###### Get list of all files in RP2 directory
+```{r}
+rp2_files <- list.files("C:/Users/mycom/Downloads/RP2/SENSOR_DATA", pattern = "*.csv", full.names = TRUE)
+```
+
+###### Create a reusable function to load and preprocess individual CSV files.
+```{r}
+# Define function to load and clean files from RP2
+read_rp2_files <- function(file_path) {
+  read_csv(file_path, 
+           col_types = cols(
+             recording_start_time = col_character(),
+             current_phase = col_character(),
+             value = col_double()
+           )) %>%
+    rename_all(~str_trim(.)) %>% # Standardize column names to prevent errors
+    filter(!is.na(value))       # Remove rows without valid participant data
+}
+```
+
+###### Load all participant data files, process them using the `read_rp2_files` function, and combine the resulting data frames into a single dataset.
+```{r load-data}
+participant_data <- bind_rows(lapply(rp2_files, read_rp2_files), .id = "file_id")
+
+# Rename 'value' column to 'score' to reflect consistency with NASA TLX
+participant_data <- participant_data %>% rename(score = value)
+
+# Inspect combined data
+summary(participant_data)
+head(participant_data)
+```
+
+### Comparing Participant Data
+###### Generate summary statistics for each participant and phase combination. Summarize key statistics for the "score" variable within each combination of participant and phase.
+```{r}
+summary_data <- participant_data %>%
+  group_by(file_id, current_phase) %>%
+  summarize(
+    mean_value = mean(score, na.rm = TRUE),
+    sd_value = sd(score, na.rm = TRUE),
+    min_value = min(score, na.rm = TRUE),
+    max_value = max(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Inspect summary statistics to confirm that statistics have been calculated correctly.
+head(summary_data)
+```
+
+### Visualizing Participant Comparisons
+###### To create visualizations that facilitate comparisons of participant data across phases. The visualizations help to identify patterns, outliers, and trends within the data.
+
+```{r, fig.height = 8, fig.width = 10}
+# Boxplot of values by phase and participants
+participant_data %>%
+  ggplot(aes(x = current_phase, y = score, fill = file_id)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(
+    title = "Participant Data Comparison",
+    x = "Phase",
+    y = " Sensor Readings",
+    fill = "Participant"
+  )
+```
+
+###### Bar graph to visualize the mean for each phase across all participants
+```{r, fig.height = 8, fig.width = 10}
+summary_data %>%
+  ggplot(aes(x = current_phase, y = mean_value, group = file_id, color = file_id)) +
+  geom_line(size = 0.7) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  labs(
+    title = "Trends in Sensor Readings Across Phases",
+    x = "Phase",
+    y = "Avg Sensor Value",
+    color = "Participant"
+  )
+```
+
+##### Participant Level Analysis: Variability
+###### Exploring the variability between participants in each phase
+```{r, fig.height = 8, fig.width = 10}
+participant_variability <- participant_data %>%
+  group_by(file_id, current_phase) %>%
+  summarize(
+    median_value = median(score, na.rm = TRUE),
+    interquartile_range = IQR(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+participant_data %>%
+  ggplot(aes(y = score, fill = current_phase)) +
+  geom_boxplot() +
+  facet_wrap(~ file_id, strip.position = "bottom") +
+  theme_minimal() +
+  theme(strip.placement = "outside", strip.text.x = element_text(size = 10), axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(
+    title = "Within-Participant Trends: Sensor Readings in each phase",
+    x = "Participant",
+    y = "Sensor Value",
+    fill = "Phase"
+  )
+```
+
+#### Distributions of values for participants in each phase.
+```{r, fig.height = 8, fig.width = 10}
+participant_data %>%
+  ggplot(aes(x = score, fill = current_phase)) +
+  geom_density(alpha = 0.9) +
+  facet_wrap(~ file_id) +
+  theme_minimal() +
+  labs(
+    title = "Value Distribution by Participant and Phase",
+    x = "Sensor Value",
+    fill = "Phase"
+  )
+```
+
+##### Load NASA TLX data
+```{r}
+nasa_tlx_scores <- read_csv("C:/Users/mycom/Downloads/RP2/NASATLX/NASA_TLX_Scores.csv") %>%
+  mutate(
+    current_phase = factor(current_phase, levels = c("Phase 2", "Phase 3")),
+    file_id = as.character(file_id)  # Align with participant_data
+  )
+```
+
+```{r}
+# Function to prepare data for radar charts
+prepare_radar_data <- function(data, participant_id, phase) {
+  data %>%
+    filter(file_id == participant_id & current_phase == phase) %>%
+    select(mental_demand, physical_demand, temporal_demand, 
+           performance, effort, frustration) %>%
+    {rbind(rep(100, ncol(.)), rep(0, ncol(.)), .)} # Add max and min rows for scaling
+}
+
+# Generate radar charts for each participant and phase
+unique_participants <- unique(nasa_tlx_scores$file_id)
+unique_phases <- unique(nasa_tlx_scores$current_phase)
+
+for (participant_id in unique_participants) {
+  for (phase in unique_phases) {
+    radar_data <- prepare_radar_data(nasa_tlx_scores, participant_id, phase)
+    if (nrow(radar_data) > 2) {  # Ensure data is present
+      radarchart(
+        radar_data,
+        axistype = 1,
+        pcol = "blue", pfcol = rgb(0.2, 0.5, 0.5, 0.5), plwd = 2,
+        cglcol = "grey", cglty = 1, axislabcol = "grey",
+        caxislabels = seq(0, 100, 25), vlcex = 0.8
+      )
+      title(main = paste("Participant:", participant_id, "- Phase:", phase))
+    }
+  }
+}
+```
+
+
+```{r}
+# Merge sensor and NASA TLX data
+combined_data <- participant_data %>%
+  filter(current_phase %in% c("Phase 2", "Phase 3")) %>% # Filter for Phase 2 and 3 only
+  group_by(file_id, current_phase) %>%
+  summarize(
+    mean_value = mean(score, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(nasa_tlx_scores, by = c("file_id", "current_phase"))
+```
+
+#### Standardize both metrics using Z-Score
+```{r}
+standardized_data <- combined_data %>%
+  mutate(
+    standardized_mean_sensor_value = scale(mean_value)[, 1],  # Standardize sensor readings
+    standardized_NASATLX_score = scale(score)[, 1]            # Standardize NASA TLX scores
+  )
+
+# Step 2: Reshape the data for combined plotting
+long_standardized_data <- standardized_data %>%
+  pivot_longer(
+    cols = c(standardized_mean_sensor_value, standardized_NASATLX_score),
+    names_to = "metric",
+    values_to = "standardized_value"
+  )
+```
+
+```{r, fig.height = 8, fig.width = 10}
+
+participants <- unique(long_standardized_data$file_id)
+
+# Create a single plot comparing participants on the x-axis
+long_standardized_data %>%
+  ggplot(aes(x = file_id, y = standardized_value, fill = metric)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +  # Add black outlines to bars
+  facet_wrap(~ current_phase) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Standardized NASA TLX and Sensor Readings Across Participants",
+    x = "Participant",
+    y = "Standardized Value (Z-Score)",
+    fill = "Metric"
+  )
+
+```
+```
+
+### Saving Cleaned Data
+###### Exporting the cleaned and combined dataset for further analysis.
+```{r}
+save(participant_data, summary_data, file = "RP2.Rda")
